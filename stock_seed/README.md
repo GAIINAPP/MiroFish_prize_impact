@@ -70,6 +70,13 @@ The `simulation_requirement` is templated, e.g.:
 
 ## Status
 
-Scaffold only. `mirofish_client.py` is written to the real API contract above;
-`db.py` / `seed_builder.py` / `orchestrator.py` are interfaces with TODOs
-pending the decisions above.
+- ✅ `db.py` / `seed_builder.py` — **live and validated** against the DB
+  (`akshay.stock_prices_daily`, `news.market_news`); build a clean OHLC market
+  report + news digest (with sentiment). NSE/BSE dual-listings deduped per date.
+- ✅ LLM = **Gemini** (OpenAI-compat), `.env` templated; `Dockerfile` + compose.
+- ✅ `api.py` — `/project` (seed + create MiroFish project, for the UI embed) and
+  `/predict` (full synchronous pipeline).
+- ⏳ `mirofish_client.py` written to the real API contract; the graph/sim/report
+  **poll routes** need verifying against a booted MiroFish backend (needs `ZEP_API_KEY`).
+
+See `../DEPLOY.md` for running + the gaiin-frontend wiring.
