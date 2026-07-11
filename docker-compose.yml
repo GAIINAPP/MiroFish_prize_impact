@@ -12,10 +12,13 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend/uploads:/app/backend/uploads
-      # Overlay ONLY our patched LLM client on the prebuilt image (the fork and
-      # the image are different commits, so mounting all of app/ mismatches
-      # locales/etc.). This one file carries the Gemini thinking/token fix.
+      # Overlay ONLY our patched files on the prebuilt image (the fork and the
+      # image are different commits, so mounting all of app/ mismatches
+      # locales/etc.). Each is patched against the IMAGE's own copy.
+      #   llm_client.py           → Gemini thinking off + higher max_tokens
+      #   simulation_runner.py    → default max_rounds to OASIS_DEFAULT_MAX_ROUNDS
       - ./backend/app/utils/llm_client.py:/app/backend/app/utils/llm_client.py
+      - ./patches/mirofish/simulation_runner.py:/app/backend/app/services/simulation_runner.py
 
   # Our price-impact orchestrator: reads stock price history + related news,
   # builds MiroFish seed files, drives the pipeline, returns a prediction.
