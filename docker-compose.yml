@@ -12,9 +12,10 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend/uploads:/app/backend/uploads
-      # Overlay our patched backend on the prebuilt image (Gemini fixes etc.)
-      # so we don't have to rebuild the whole MiroFish image to iterate.
-      - ./backend/app:/app/backend/app
+      # Overlay ONLY our patched LLM client on the prebuilt image (the fork and
+      # the image are different commits, so mounting all of app/ mismatches
+      # locales/etc.). This one file carries the Gemini thinking/token fix.
+      - ./backend/app/utils/llm_client.py:/app/backend/app/utils/llm_client.py
 
   # Our price-impact orchestrator: reads stock price history + related news,
   # builds MiroFish seed files, drives the pipeline, returns a prediction.
