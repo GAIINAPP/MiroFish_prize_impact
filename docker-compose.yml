@@ -12,6 +12,9 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend/uploads:/app/backend/uploads
+      # Overlay our patched backend on the prebuilt image (Gemini fixes etc.)
+      # so we don't have to rebuild the whole MiroFish image to iterate.
+      - ./backend/app:/app/backend/app
 
   # Our price-impact orchestrator: reads stock price history + related news,
   # builds MiroFish seed files, drives the pipeline, returns a prediction.

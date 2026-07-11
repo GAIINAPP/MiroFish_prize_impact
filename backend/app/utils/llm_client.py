@@ -36,7 +36,7 @@ class LLMClient:
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
         response_format: Optional[Dict] = None
     ) -> str:
         """
@@ -57,7 +57,13 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-        
+
+        # Gemini 2.5 "thinks" by default, which consumes the token budget (and
+        # truncates large JSON like the ontology) plus adds latency/cost on
+        # every call — disable it via the OpenAI-compat reasoning_effort field.
+        if "gemini" in (self.model or "").lower():
+            kwargs["extra_body"] = {"reasoning_effort": "none"}
+
         if response_format:
             kwargs["response_format"] = response_format
         
@@ -71,7 +77,7 @@ class LLMClient:
         self,
         messages: List[Dict[str, str]],
         temperature: float = 0.3,
-        max_tokens: int = 4096
+        max_tokens: int = 16384
     ) -> Dict[str, Any]:
         """
         发送聊天请求并返回JSON
