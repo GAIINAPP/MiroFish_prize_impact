@@ -7,8 +7,25 @@ services:
     env_file:
       - .env
     ports:
-      - "3000:3000"
-      - "5001:5001"
+      - "3000:3000"   # frontend (the simulation / graphs UI)
+      - "5001:5001"   # backend API
     restart: unless-stopped
     volumes:
       - ./backend/uploads:/app/backend/uploads
+
+  # Our price-impact orchestrator: reads stock price history + related news,
+  # builds MiroFish seed files, drives the pipeline, returns a prediction.
+  stock_seed:
+    build:
+      context: ./stock_seed
+    container_name: stock_seed
+    env_file:
+      - .env
+    environment:
+      # Reach the MiroFish backend over the compose network.
+      - MIROFISH_BASE_URL=http://mirofish:5001
+    ports:
+      - "8090:8090"
+    depends_on:
+      - mirofish
+    restart: unless-stopped

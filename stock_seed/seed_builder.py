@@ -1,45 +1,66 @@
 """Turn stock data + news into MiroFish seed files and the prediction ask."""
 from __future__ import annotations
 
-from .db import NewsItem, PricePoint
+from .db import NewsItem, PricePoint, StockMeta
 from .mirofish_client import SeedFile
 
 
-def build_market_report(symbol: str, prices: list[PricePoint]) -> SeedFile:
+def build_market_report(meta: StockMeta, prices: list[PricePoint]) -> SeedFile:
     """A compact market-report seed: recent price action + simple derived stats
-    (trend, range, latest close, volume). Kept as markdown MiroFish can ingest."""
-    asc = list(reversed(prices))  # oldest → newest for readability
-    latest = asc[-1] if asc else None
-    lines = [f"# {symbol} — Market report", ""]
-    if latest:
-        first = asc[0].close
-        change = ((latest.close - first) / first * 100) if first else 0.0
+    (window change, range, latest close, average volume). Markdown MiroFish can
+    ingest and the agents can reason over."""
+    sym = meta.symbol
+    title = f"{sym}" + (f" — {meta.name}" if meta.name else "")
+    lines = [f"# {title} — Market report", ""]
+    if meta.sector:
+        lines.append(f"- Sector: {meta.sector}")
+    if prices:
+        first, last = prices[0], prices[-1]
+        change = ((last.close - first.close) / first.close * 100) if first.close else 0.0
+        highs = [p.high for p in prices if p.high is not None]
+        lows = [p.low for p in prices if p.low is not None]
+        vols = [p.volume for p in prices if p.volume is not None]
         lines += [
-            f"- Latest close: {latest.close}",
-            f"- Window: {asc[0].date} → {latest.date} ({len(asc)} sessions)",
+            f"- Latest close: {last.close} ({last.date})",
+            f"- Window: {first.date} → {last.date} ({len(prices)} sessions)",
             f"- Window change: {change:+.2f}%",
+            f"- Period high / low: {max(highs) if highs else '—'} / {min(lows) if lows else '—'}",
+            f"- Avg daily volume: {int(sum(vols) / len(vols)) if vols else '—'}",
             "",
-            "## Recent closes (oldest → newest)",
+            "## Daily OHLC (oldest → newest)",
             "",
-            *[f"- {p.date}: {p.close}" + (f"  (vol {p.volume})" if p.volume else "") for p in asc],
+            "| Date | Open | High | Low | Close | Volume |",
+            "| --- | --- | --- | --- | --- | --- |",
+            *[
+                f"| {p.date} | {p.open} | {p.high} | {p.low} | {p.close} | {p.volume or ''} |"
+                for p in prices
+            ],
         ]
-    # TODO: enrich with indicators the analyzer already computes (RSI, trend
-    # label, support/resistance) so the agents reason on richer signals.
-    return SeedFile(filename=f"{symbol}_market_report.md", content="\n".join(lines))
+    else:
+        lines.append("- No price history available.")
+    return SeedFile(filename=f"{sym}_market_report.md", content="\n".join(lines))
 
 
-def build_news_digest(symbol: str, news: list[NewsItem]) -> SeedFile:
-    """A news-digest seed: related headlines + summaries, newest first."""
-    lines = [f"# {symbol} — Related news digest", ""]
+def build_news_digest(meta: StockMeta, news: list[NewsItem]) -> SeedFile:
+    """A news-digest seed: related headlines + summaries (newest first), with the
+    pre-computed sentiment/impact so agents weigh each item."""
+    lines = [f"# {meta.symbol} — Related news digest", ""]
+    if not news:
+        lines.append("- No related news found.")
     for n in news:
-        lines += [
-            f"## {n.headline}",
-            f"_{n.published_at}" + (f" · {n.source}" if n.source else "") + "_",
-            "",
-            n.summary or "",
-            "",
-        ]
-    return SeedFile(filename=f"{symbol}_news_digest.md", content="\n".join(lines))
+        tags = []
+        if n.sentiment:
+            tags.append(f"sentiment: {n.sentiment}")
+        if n.impact is not None:
+            tags.append(f"impact: {n.impact}")
+        meta_line = f"_{n.published_at}"
+        if n.source:
+            meta_line += f" · {n.source}"
+        if tags:
+            meta_line += f" · {' · '.join(tags)}"
+        meta_line += "_"
+        lines += [f"## {n.headline}", meta_line, "", n.summary or "", ""]
+    return SeedFile(filename=f"{meta.symbol}_news_digest.md", content="\n".join(lines))
 
 
 def simulation_requirement(symbol: str, horizon_days: int) -> str:
@@ -49,5 +70,6 @@ def simulation_requirement(symbol: str, horizon_days: int) -> str:
         f"related news in the seed materials. Deduce: overall direction "
         f"(up / down / flat), a rough magnitude band, the key drivers behind the "
         f"move, and a confidence level. Reason as a population of market "
-        f"participants reacting to the news and price context."
+        f"participants (retail traders, institutions, analysts, news readers) "
+        f"reacting to the news and the price context."
     )

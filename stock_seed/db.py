@@ -1,8 +1,12 @@
 """Read stock price history + related news from the shared Postgres DB.
 
-The exact tables/columns are TBD (see README prereq #3) — the queries below are
-placeholders keyed on what we already know (`akshay.stock_master` for the master;
-the news table the frontend `/api/news` reads). Fill the SQL once confirmed.
+Live queries against:
+  • akshay.stock_prices_daily  (daily OHLCV)
+  • news.market_news           (headline/description + stocks_affected[] + sentiment/impact)
+  • akshay.stock_master        (name/sector for context)
+
+The DB host is internal infra — this module runs server-side only; never surface
+the DSN/host anywhere client-facing.
 """
 from __future__ import annotations
 
@@ -17,8 +21,11 @@ from .config import settings
 @dataclass
 class PricePoint:
     date: str
+    open: float | None
+    high: float | None
+    low: float | None
     close: float
-    volume: float | None = None
+    volume: int | None = None
 
 
 @dataclass
@@ -27,6 +34,16 @@ class NewsItem:
     headline: str
     summary: str
     source: str | None = None
+    sentiment: str | None = None
+    impact: int | None = None
+
+
+@dataclass
+class StockMeta:
+    symbol: str
+    name: str | None = None
+    sector: str | None = None
+    exchange: str | None = None
 
 
 class StockDataReader:
@@ -38,27 +55,71 @@ class StockDataReader:
             raise RuntimeError("database_url is not configured")
         return psycopg.connect(self.dsn, row_factory=dict_row)
 
+    def meta(self, symbol: str) -> StockMeta:
+        sql = """
+            SELECT symbol, name, sector, exchange
+            FROM   akshay.stock_master
+            WHERE  symbol = %(symbol)s
+            LIMIT  1
+        """
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(sql, {"symbol": symbol})
+            row = cur.fetchone()
+        if not row:
+            return StockMeta(symbol=symbol)
+        return StockMeta(
+            symbol=row["symbol"], name=row["name"],
+            sector=row["sector"], exchange=row["exchange"],
+        )
+
     def price_history(self, symbol: str, window_days: int | None = None) -> list[PricePoint]:
         window = window_days or settings.price_window_days
-        # TODO: point at the real OHLCV table + column names.
+        # A symbol can be dual-listed (NSE + BSE) → one row per exchange per
+        # date. Keep the higher-volume (primary/liquid) listing per date.
         sql = """
-            SELECT date, close, volume
-            FROM   <price_table>
+            SELECT DISTINCT ON (date) date, open, high, low, close, volume
+            FROM   akshay.stock_prices_daily
             WHERE  symbol = %(symbol)s
-            ORDER  BY date DESC
+            ORDER  BY date DESC, volume DESC NULLS LAST
             LIMIT  %(window)s
         """
-        raise NotImplementedError("wire up the price-history query (README prereq #3)")
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(sql, {"symbol": symbol, "window": window})
+            rows = cur.fetchall()
+        # Return oldest → newest for readable seeds.
+        return [
+            PricePoint(
+                date=str(r["date"]),
+                open=_f(r["open"]), high=_f(r["high"]), low=_f(r["low"]),
+                close=_f(r["close"]) or 0.0, volume=r["volume"],
+            )
+            for r in reversed(rows)
+        ]
 
     def related_news(self, symbol: str, limit: int | None = None) -> list[NewsItem]:
         lim = limit or settings.news_limit
-        # TODO: mirror the frontend /api/news stock filter (SYM = ANY(stocks_affected)
-        # OR brand ILIKE headline/description).
         sql = """
-            SELECT published_at, headline, summary, source
-            FROM   <news_table>
+            SELECT published_at, headline, description, source_name, sentiment, impact
+            FROM   news.market_news
             WHERE  %(symbol)s = ANY(stocks_affected)
-            ORDER  BY published_at DESC
+            ORDER  BY published_at DESC NULLS LAST
             LIMIT  %(limit)s
         """
-        raise NotImplementedError("wire up the related-news query (README prereq #3)")
+        with self._conn() as conn, conn.cursor() as cur:
+            cur.execute(sql, {"symbol": symbol, "limit": lim})
+            rows = cur.fetchall()
+        return [
+            NewsItem(
+                published_at=str(r["published_at"]),
+                headline=r["headline"] or "",
+                summary=r["description"] or "",
+                source=r["source_name"],
+                sentiment=r["sentiment"],
+                impact=r["impact"],
+            )
+            for r in rows
+        ]
+
+
+def _f(v) -> float | None:
+    return float(v) if v is not None else None

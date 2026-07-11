@@ -23,10 +23,11 @@ def predict_price_impact(symbol: str, horizon_days: int | None = None) -> PriceP
     horizon = horizon_days or settings.default_horizon_days
 
     reader = StockDataReader()
+    meta = reader.meta(symbol)
     prices = reader.price_history(symbol)
     news = reader.related_news(symbol)
 
-    seeds = [build_market_report(symbol, prices), build_news_digest(symbol, news)]
+    seeds = [build_market_report(meta, prices), build_news_digest(meta, news)]
     requirement = simulation_requirement(symbol, horizon)
 
     mf = MiroFishClient()
