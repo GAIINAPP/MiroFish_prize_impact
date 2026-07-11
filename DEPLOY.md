@@ -60,3 +60,10 @@ report renders inline.
 - The Postgres host is internal infra — kept server-side in `stock_seed`; never
   surfaces in any client response.
 - Sims are LLM-heavy; keep rounds/agents modest (MiroFish warns < 40 rounds).
+- **Iframe embedding:** the beta pane embeds MiroFish's frontend in an `<iframe>`.
+  For that to render, the MiroFish frontend must **allow framing** from the
+  gaiin domain — i.e. it must NOT send `X-Frame-Options: DENY/SAMEORIGIN`, and
+  its CSP (if any) needs `frame-ancestors <gaiin-domain>`. Vite's dev server
+  doesn't set these by default; a production reverse proxy in front of MiroFish
+  must not add them. If a browser refuses to frame it, the pane's **"Open in new
+  tab"** link is the fallback.
