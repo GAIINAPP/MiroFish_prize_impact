@@ -89,37 +89,69 @@ class MiroFishClient:
         raise MiroFishError("graph build timed out")
 
     # 3) Run the OASIS simulation ------------------------------------------------
+    #
+    # NOTE: the OASIS simulation is a multi-step lifecycle in the backend —
+    #   /simulation/create  → /simulation/prepare  (poll /prepare/status)
+    #   → /simulation/start  (poll /<id>/run-status) → then the report.
+    # The MiroFish FRONTEND drives these interactively at /process/:projectId,
+    # which is the primary (embedded) UI path. This headless orchestration is
+    # for the /predict endpoint; the prepare/start request bodies (config knobs)
+    # still need confirming against a booted backend — marked TODO.
     def run_simulation(self, *, project_id: str, graph_id: str | None = None) -> str:
         payload = {"project_id": project_id}
         if graph_id:
             payload["graph_id"] = graph_id
         with self._client(60) as c:
-            data = self._data(c.post("/api/simulation/create", json=payload))
-        simulation_id = data.get("simulation_id")
-        if not simulation_id:
-            raise MiroFishError("no simulation_id returned")
-        # TODO: confirm whether /create auto-runs or needs a /start, and the
-        # status route to poll to completion before report generation.
-        self._poll_simulation(simulation_id)
+            sim = self._data(c.post("/api/simulation/create", json=payload))
+            simulation_id = sim.get("simulation_id")
+            if not simulation_id:
+                raise MiroFishError("no simulation_id returned")
+
+            # TODO: prepare/start likely take config params the LLM generates;
+            # confirm the exact bodies. Statuses polled below are best-effort.
+            c.post("/api/simulation/prepare", json={"simulation_id": simulation_id})
+        self._poll(
+            "/api/simulation/prepare/status",
+            {"simulation_id": simulation_id},
+            settings.simulation_timeout_s,
+            method="post",
+        )
+        with self._client(60) as c:
+            c.post("/api/simulation/start", json={"simulation_id": simulation_id})
+        self._poll(
+            f"/api/simulation/{simulation_id}/run-status",
+            None,
+            settings.simulation_timeout_s,
+            method="get",
+        )
         return simulation_id
 
-    def _poll_simulation(self, simulation_id: str) -> None:
-        # TODO: implement against the real simulation status route.
-        deadline = time.monotonic() + settings.simulation_timeout_s
+    def _poll(self, path: str, body: dict | None, timeout_s: int, *, method: str) -> dict:
+        deadline = time.monotonic() + timeout_s
         with self._client(30) as c:
             while time.monotonic() < deadline:
-                data = self._data(c.get(f"/api/simulation/{simulation_id}/status"))
+                resp = c.post(path, json=body) if method == "post" else c.get(path)
+                data = self._data(resp)
                 status = str(data.get("status", "")).lower()
-                if status in {"completed", "success", "done"}:
-                    return
+                if status in {"completed", "success", "done", "finished"}:
+                    return data
                 if status in {"failed", "error"}:
-                    raise MiroFishError(data.get("error") or "simulation failed")
+                    raise MiroFishError(data.get("error") or f"{path} failed")
                 time.sleep(settings.poll_interval_s)
-        raise MiroFishError("simulation timed out")
+        raise MiroFishError(f"{path} timed out")
 
     # 4) Generate the prediction report -----------------------------------------
     def generate_report(self, simulation_id: str) -> dict:
-        with self._client(settings.report_timeout_s) as c:
-            return self._data(
+        with self._client(60) as c:
+            self._data(
                 c.post("/api/report/generate", json={"simulation_id": simulation_id})
             )
+        # Report generation is async — poll, then fetch the finished report.
+        self._poll(
+            "/api/report/generate/status",
+            {"simulation_id": simulation_id},
+            settings.report_timeout_s,
+            method="post",
+        )
+        with self._client(60) as c:
+            return self._data(c.get(f"/api/report/by-simulation/{simulation_id}"))
