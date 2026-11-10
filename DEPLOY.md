@@ -46,7 +46,7 @@ DATABASE_URL=postgres://<user>:<password>@<db-host>:5432/mydb?sslmode=require
 `.env` is gitignored — keys never get committed.
 
 ### 3. DB reachability from inside Docker
-Postgres is on this same box, so the container connects to `136.114.25.215:5432`
+Postgres is on this same box, so the container connects to `<db-host>:5432`
 (usually works via NAT hairpin). If `stock_seed` can't reach the DB, add to the
 `stock_seed` service in `docker-compose.yml` and switch `DATABASE_URL` host to
 `host.docker.internal`:
