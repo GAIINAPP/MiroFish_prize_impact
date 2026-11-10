@@ -41,7 +41,7 @@ LLM_API_KEY=<your GEMINI_API_KEY>
 LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
 LLM_MODEL_NAME=gemini-2.5-flash
 ZEP_API_KEY=<zep key>
-DATABASE_URL=postgres://rishabh:rishabh456@136.114.25.215:5432/mydb?sslmode=require
+DATABASE_URL=postgres://<user>:<password>@<db-host>:5432/mydb?sslmode=require
 ```
 `.env` is gitignored — keys never get committed.
 
